@@ -75,6 +75,21 @@ app.layout = html.Div([
     ]),
     html.Hr(),
 
+    # KPI Summary Cards
+    html.Div(
+        id='summary-cards',
+        style={
+            'display': 'flex',
+            'justifyContent': 'space-around',
+            'marginBottom': '20px',
+            'padding': '15px',
+            'backgroundColor': '#f5f5f5',
+            'borderRadius': '5px'
+        }
+    ),
+
+
+
     # Data Table
     dash_table.DataTable(
         id='datatable-id',
@@ -85,7 +100,19 @@ app.layout = html.Div([
         sort_action='native',
         row_selectable='single',
         selected_rows=[0],
-        style_table={'overflowX': 'auto', 'maxHeight': '500px'}
+
+        style_table={ # added better visualizations elemnts to display data
+        'overflowX': 'auto',
+        'height': '500px',
+        'overflowY': 'auto'
+    },
+    style_header={
+        'fontWeight': 'bold'
+    },
+    style_cell={
+        'textAlign': 'left',
+        'padding': '8px'
+    }
     ),
     html.Br(),
     html.Hr(),
@@ -128,56 +155,183 @@ def update_dashboard(filter_type):
         df.drop(columns=['_id'], inplace=True)
     return df.to_dict('records')
 
+
 # -------------------------------
-# Map Callback
+# KPI Summary Cards Callback // This addition adds the ability to see important metrics like totla animals, unique breeds etc, that allows reacts to filtering
 # -------------------------------
 @app.callback(
-    Output('map-id', 'children'),
-    [Input('datatable-id', 'derived_virtual_data'),
-     Input('datatable-id', 'derived_virtual_selected_rows')]
+    Output('summary-cards', 'children'),
+    [Input('datatable-id', 'derived_virtual_data')]
 )
-def update_map(viewData, selectedRows):
-    if not viewData or not selectedRows:
-        return [dl.Map(style={'width': '100%', 'height': '500px'}, center=[30.27, -97.74], zoom=10, children=[dl.TileLayer()])]
+def update_summary(viewData):
 
-    dff = pd.DataFrame.from_dict(viewData)
+    if not viewData:
+        return []
+
+    dff = pd.DataFrame(viewData)
+
     if dff.empty:
-        return [dl.Map(style={'width': '100%', 'height': '500px'}, center=[30.27, -97.74], zoom=10, children=[dl.TileLayer()])]
+        return []
 
-    selected_row = selectedRows[0]
-    selected_animal = dff.iloc[selected_row]
+    total_animals = len(dff)
 
-    lat = selected_animal.get("location_lat", 30.27)
-    lon = selected_animal.get("location_long", -97.74)
+    unique_breeds = (
+        dff['breed'].nunique()
+        if 'breed' in dff.columns
+        else 0
+    )
+
+    animal_types = (
+        dff['animal_type'].nunique()
+        if 'animal_type' in dff.columns
+        else 0
+    )
 
     return [
-        dl.Map(style={'width': '100%', 'height': '500px'}, center=[lat, lon], zoom=10, children=[
-            dl.TileLayer(),
-            dl.Marker(position=[lat, lon], children=[
-                dl.Tooltip(selected_animal.get("name", "Unknown")),
-                dl.Popup([
-                    html.H4(selected_animal.get("name", "Unknown")),
-                    html.P(f"Breed: {selected_animal.get('breed', 'Unknown')}"),
-                    html.P(f"Type: {selected_animal.get('animal_type', 'Unknown')}"),
-                    html.P(f"Age: {selected_animal.get('age_upon_outcome', 'Unknown')}"),
-                ])
-            ])
-        ])
+
+        html.Div([
+            html.H2(total_animals),
+            html.P("Total Animals")
+        ], style={
+            'textAlign': 'center',
+            'padding': '10px'
+        }),
+
+        html.Div([
+            html.H2(unique_breeds),
+            html.P("Unique Breeds")
+        ], style={
+            'textAlign': 'center',
+            'padding': '10px'
+        }),
+
+        html.Div([
+            html.H2(animal_types),
+            html.P("Animal Types")
+        ], style={
+            'textAlign': 'center',
+            'padding': '10px'
+        })
+
     ]
 
 # -------------------------------
-# Graph Callback
+# Map Callback // Improved map logic to allow multiple animals to be selected, this way can see and visualize clusters and concentrations of data visually on map
 # -------------------------------
+@app.callback(
+    Output('map-id', 'children'),
+    [Input('datatable-id', 'derived_virtual_data')]
+)
+def update_map(viewData):
+
+    if not viewData:
+        return dl.Map(
+            center=[30.27, -97.74],
+            zoom=10,
+            style={'width': '100%', 'height': '500px'},
+            children=[dl.TileLayer()]
+        )
+
+    dff = pd.DataFrame(viewData)
+
+    if dff.empty:
+        return dl.Map(
+            center=[30.27, -97.74],
+            zoom=10,
+            style={'width': '100%', 'height': '500px'},
+            children=[dl.TileLayer()]
+        )
+
+    markers = []
+
+    for _, row in dff.iterrows():
+
+        try:
+
+            lat = float(row['location_lat'])
+            lon = float(row['location_long'])
+
+            markers.append(
+                dl.Marker(
+                    position=[lat, lon],
+                    children=[
+                        dl.Tooltip(
+                            row.get('name', 'Unknown')
+                        )
+                    ]
+                )
+            )
+
+        except:
+            continue
+
+    return dl.Map(
+        center=[30.27, -97.74],
+        zoom=10,
+        style={'width': '100%', 'height': '500px'},
+        children=[
+            dl.TileLayer(),
+            *markers
+        ]
+    )
+
+# -------------------------------
+# Graph Callback // Now this is a bar graph that shows the top 10 breeds
+# ------------------------------- 
 @app.callback(
     Output('graph-id', 'children'),
     [Input('datatable-id', 'derived_virtual_data')]
 )
 def update_graphs(viewData):
-    dff = pd.DataFrame.from_dict(viewData)
-    if dff.empty or 'breed' not in dff.columns:
-        return html.Div("No data to display.")
-    fig = px.pie(dff, names='breed', title='Animal Breed Distribution')
-    return [dcc.Graph(figure=fig)]
+
+    if not viewData:
+        return html.Div("No data available.")
+
+    dff = pd.DataFrame(viewData)
+
+    if dff.empty:
+        return html.Div("No data available.")
+
+    graphs = []
+
+    # Top 10 Breeds
+    if 'breed' in dff.columns:
+
+        breed_counts = (
+            dff['breed']
+            .fillna('Unknown')
+            .value_counts()
+            .head(10)
+            .reset_index()
+        )
+
+        breed_counts.columns = ['Breed', 'Count']
+
+        breed_fig = px.bar(
+            breed_counts,
+            x='Breed',
+            y='Count',
+            title='Top 10 Animal Breeds'
+        )
+
+        graphs.append(
+            dcc.Graph(figure=breed_fig)
+        )
+
+    # Animal Type Distribution
+    if 'animal_type' in dff.columns:
+
+        type_fig = px.pie(
+            dff,
+            names='animal_type',
+            title='Animal Type Distribution'
+        )
+
+        graphs.append(
+            dcc.Graph(figure=type_fig)
+        )
+
+    return html.Div(graphs)
 
 # -------------------------------
 # Run App
