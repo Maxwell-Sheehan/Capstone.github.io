@@ -732,9 +732,532 @@ I would say these changes align with the following course outcome; Demonstrate a
 
 
 Artifact:
-#
-	Place
+
+	from jupyter_dash import JupyterDash
+	from dash import dcc, html, dash_table
+	from dash.dependencies import Input, Output
+	import dash_leaflet as dl
+	import plotly.express as px
+	import pandas as pd
+	import base64
+	from CRUD_Python_Module import AnimalShelter
+	import os
+	
+	# -------------------------------
+	# Configure JupyterDash for Codio
+	# -------------------------------
+	JupyterDash.infer_jupyter_proxy_config()
+	
+	# -------------------------------
+	# Build App Layout
+	# -------------------------------
+	app = JupyterDash(__name__)
+	
+	# -------------------------------
+	# Database Connection
+	# -------------------------------
+	username = 'aacuser' 
+	password = 'password123' 
+	db = AnimalShelter(username, password)
+	
+	# Read all data initially
+	df = pd.DataFrame.from_records(db.read({}))
+	if '_id' in df.columns:
+	    df.drop(columns=['_id'], inplace=True)
+	
+	# -------------------------------
+	# Load and encode logo image
+	# -------------------------------
+	
+	image_filename = "code_files/Grazioso Salvare Logo.png"
+	if os.path.exists(image_filename):
+	    encoded_image = base64.b64encode(open(image_filename, 'rb').read())
+	    logo_component = html.Img(
+	        src='data:image/png;base64,{}'.format(encoded_image.decode()),
+	        style={'height': '100px'}
+	    )
+	else:
+	    logo_component = html.Div(
+	        "Logo not found. Place the logo in code_files folder.",
+	        style={'color': 'red', 'fontWeight':'bold'}
+	    )
+	
+	# -------------------------------
+	# Build App Layout
+	# -------------------------------
+	app = JupyterDash(__name__)
+	
+	app.layout = html.Div([
+	    html.Center([
+	        logo_component,
+	        html.H1('Grazioso Salvare Dashboard - Max Sheehan')
+	    ]),
+	    html.Hr(),
+	
+	    # Filter buttons
+	    html.Div([
+	        dcc.RadioItems(
+	            id='filter-type',
+	            options=[
+	                {'label': 'Water Rescue', 'value': 'water'},
+	                {'label': 'Mountain or Wilderness Rescue', 'value': 'mountain'},
+	                {'label': 'Disaster or Individual Tracking', 'value': 'disaster'},
+	                {'label': 'Reset', 'value': 'reset'}
+	            ],
+	            value='reset',
+	            inline=True
+	        )
+	    ]),
+	    html.Hr(),
+	
+	    # Data Table
+	    dash_table.DataTable(
+	        id='datatable-id',
+	        columns=[{"name": i, "id": i} for i in df.columns],
+	        data=df.to_dict('records'),
+	        page_size=12,
+	        filter_action='native',
+	        sort_action='native',
+	        row_selectable='single',
+	        selected_rows=[0],
+	        style_table={'overflowX': 'auto', 'maxHeight': '500px'}
+	    ),
+	    html.Br(),
+	    html.Hr(),
+	
+	    # Graph + Map display
+	    html.Div(className='row', style={'display': 'flex'}, children=[
+	        html.Div(id='graph-id', className='col s12 m6'),
+	        html.Div(id='map-id', className='col s12 m6')
+	    ])
+	])
+	
+	# -------------------------------
+	# Filter Callback
+	# -------------------------------
+	@app.callback(
+	    Output('datatable-id', 'data'),
+	    [Input('filter-type', 'value')]
+	)
+	def update_dashboard(filter_type):
+	    if filter_type == 'water':
+	        data = db.read({
+	            "animal_type": "Dog",
+	            "breed": {"$in": ["Labrador Retriever Mix", "Chesapeake Bay Retriever", "Newfoundland"]}
+	        })
+	    elif filter_type == 'mountain':
+	        data = db.read({
+	            "animal_type": "Dog",
+	            "breed": {"$in": ["German Shepherd", "Alaskan Malamute", "Old English Sheepdog", "Siberian Husky", "Rottweiler"]}
+	        })
+	    elif filter_type == 'disaster':
+	        data = db.read({
+	            "animal_type": "Dog",
+	            "breed": {"$in": ["Doberman Pinscher", "German Shepherd", "Golden Retriever", "Bloodhound", "Rottweiler"]}
+	        })
+	    else:
+	        data = db.read({})
+	
+	    df = pd.DataFrame.from_records(data)
+	    if '_id' in df.columns:
+	        df.drop(columns=['_id'], inplace=True)
+	    return df.to_dict('records')
+	
+	# -------------------------------
+	# Map Callback
+	# -------------------------------
+	@app.callback(
+	    Output('map-id', 'children'),
+	    [Input('datatable-id', 'derived_virtual_data'),
+	     Input('datatable-id', 'derived_virtual_selected_rows')]
+	)
+	def update_map(viewData, selectedRows):
+	    if not viewData or not selectedRows:
+	        return [dl.Map(style={'width': '100%', 'height': '500px'}, center=[30.27, -97.74], zoom=10, children=[dl.TileLayer()])]
+	
+	    dff = pd.DataFrame.from_dict(viewData)
+	    if dff.empty:
+	        return [dl.Map(style={'width': '100%', 'height': '500px'}, center=[30.27, -97.74], zoom=10, children=[dl.TileLayer()])]
+	
+	    selected_row = selectedRows[0]
+	    selected_animal = dff.iloc[selected_row]
+	
+	    lat = selected_animal.get("location_lat", 30.27)
+	    lon = selected_animal.get("location_long", -97.74)
+	
+	    return [
+	        dl.Map(style={'width': '100%', 'height': '500px'}, center=[lat, lon], zoom=10, children=[
+	            dl.TileLayer(),
+	            dl.Marker(position=[lat, lon], children=[
+	                dl.Tooltip(selected_animal.get("name", "Unknown")),
+	                dl.Popup([
+	                    html.H4(selected_animal.get("name", "Unknown")),
+	                    html.P(f"Breed: {selected_animal.get('breed', 'Unknown')}"),
+	                    html.P(f"Type: {selected_animal.get('animal_type', 'Unknown')}"),
+	                    html.P(f"Age: {selected_animal.get('age_upon_outcome', 'Unknown')}"),
+	                ])
+	            ])
+	        ])
+	    ]
+	
+	# -------------------------------
+	# Graph Callback
+	# -------------------------------
+	@app.callback(
+	    Output('graph-id', 'children'),
+	    [Input('datatable-id', 'derived_virtual_data')]
+	)
+	def update_graphs(viewData):
+	    dff = pd.DataFrame.from_dict(viewData)
+	    if dff.empty or 'breed' not in dff.columns:
+	        return html.Div("No data to display.")
+	    fig = px.pie(dff, names='breed', title='Animal Breed Distribution')
+	    return [dcc.Graph(figure=fig)]
+	
+	# -------------------------------
+	# Run App
+	# -------------------------------
+	app.run_server()
+
 
 Enhancment
-#
-	Place
+
+	from jupyter_dash import JupyterDash
+	from dash import dcc, html, dash_table
+	from dash.dependencies import Input, Output
+	import dash_leaflet as dl
+	import plotly.express as px
+	import pandas as pd
+	import base64
+	from CRUD_Python_Module import AnimalShelter
+	import os
+	
+	# -------------------------------
+	# Configure JupyterDash for Codio
+	# -------------------------------
+	JupyterDash.infer_jupyter_proxy_config()
+	
+	# -------------------------------
+	# Build App Layout
+	# -------------------------------
+	app = JupyterDash(__name__)
+	
+	# -------------------------------
+	# Database Connection
+	# -------------------------------
+	username = 'aacuser' 
+	password = 'password123' 
+	db = AnimalShelter(username, password)
+	
+	# Read all data initially
+	df = pd.DataFrame.from_records(db.read({}))
+	if '_id' in df.columns:
+	    df.drop(columns=['_id'], inplace=True)
+	
+	# -------------------------------
+	# Load and encode logo image
+	# -------------------------------
+	
+	image_filename = "code_files/Grazioso Salvare Logo.png"
+	if os.path.exists(image_filename):
+	    encoded_image = base64.b64encode(open(image_filename, 'rb').read())
+	    logo_component = html.Img(
+	        src='data:image/png;base64,{}'.format(encoded_image.decode()),
+	        style={'height': '100px'}
+	    )
+	else:
+	    logo_component = html.Div(
+	        "Logo not found. Place the logo in code_files folder.",
+	        style={'color': 'red', 'fontWeight':'bold'}
+	    )
+	
+	# -------------------------------
+	# Build App Layout
+	# -------------------------------
+	app = JupyterDash(__name__)
+	
+	app.layout = html.Div([
+	    html.Center([
+	        logo_component,
+	        html.H1('Grazioso Salvare Dashboard - Max Sheehan')
+	    ]),
+	    html.Hr(),
+	
+	    # Filter buttons
+	    html.Div([
+	        dcc.RadioItems(
+	            id='filter-type',
+	            options=[
+	                {'label': 'Water Rescue', 'value': 'water'},
+	                {'label': 'Mountain or Wilderness Rescue', 'value': 'mountain'},
+	                {'label': 'Disaster or Individual Tracking', 'value': 'disaster'},
+	                {'label': 'Reset', 'value': 'reset'}
+	            ],
+	            value='reset',
+	            inline=True
+	        )
+	    ]),
+	    html.Hr(),
+	
+	    # KPI Summary Cards
+	    html.Div(
+	        id='summary-cards',
+	        style={
+	            'display': 'flex',
+	            'justifyContent': 'space-around',
+	            'marginBottom': '20px',
+	            'padding': '15px',
+	            'backgroundColor': '#f5f5f5',
+	            'borderRadius': '5px'
+	        }
+	    ),
+	
+	
+	
+	    # Data Table
+	    dash_table.DataTable(
+	        id='datatable-id',
+	        columns=[{"name": i, "id": i} for i in df.columns],
+	        data=df.to_dict('records'),
+	        page_size=12,
+	        filter_action='native',
+	        sort_action='native',
+	        row_selectable='single',
+	        selected_rows=[0],
+	
+	        style_table={ # added better visualizations elemnts to display data
+	        'overflowX': 'auto',
+	        'height': '500px',
+	        'overflowY': 'auto'
+	    },
+	    style_header={
+	        'fontWeight': 'bold'
+	    },
+	    style_cell={
+	        'textAlign': 'left',
+	        'padding': '8px'
+	    }
+	    ),
+	    html.Br(),
+	    html.Hr(),
+	
+	    # Graph + Map display
+	    html.Div(className='row', style={'display': 'flex'}, children=[
+	        html.Div(id='graph-id', className='col s12 m6'),
+	        html.Div(id='map-id', className='col s12 m6')
+	    ])
+	])
+	
+	# -------------------------------
+	# Filter Callback
+	# -------------------------------
+	@app.callback(
+	    Output('datatable-id', 'data'),
+	    [Input('filter-type', 'value')]
+	)
+	def update_dashboard(filter_type):
+	    if filter_type == 'water':
+	        data = db.read({
+	            "animal_type": "Dog",
+	            "breed": {"$in": ["Labrador Retriever Mix", "Chesapeake Bay Retriever", "Newfoundland"]}
+	        })
+	    elif filter_type == 'mountain':
+	        data = db.read({
+	            "animal_type": "Dog",
+	            "breed": {"$in": ["German Shepherd", "Alaskan Malamute", "Old English Sheepdog", "Siberian Husky", "Rottweiler"]}
+	        })
+	    elif filter_type == 'disaster':
+	        data = db.read({
+	            "animal_type": "Dog",
+	            "breed": {"$in": ["Doberman Pinscher", "German Shepherd", "Golden Retriever", "Bloodhound", "Rottweiler"]}
+	        })
+	    else:
+	        data = db.read({})
+	
+	    df = pd.DataFrame.from_records(data)
+	    if '_id' in df.columns:
+	        df.drop(columns=['_id'], inplace=True)
+	    return df.to_dict('records')
+	
+	
+	# -------------------------------
+	# KPI Summary Cards Callback // This addition adds the ability to see important metrics like totla animals, unique breeds etc, that allows reacts to filtering
+	# -------------------------------
+	@app.callback(
+	    Output('summary-cards', 'children'),
+	    [Input('datatable-id', 'derived_virtual_data')]
+	)
+	def update_summary(viewData):
+	
+	    if not viewData:
+	        return []
+	
+	    dff = pd.DataFrame(viewData)
+	
+	    if dff.empty:
+	        return []
+	
+	    total_animals = len(dff)
+	
+	    unique_breeds = (
+	        dff['breed'].nunique()
+	        if 'breed' in dff.columns
+	        else 0
+	    )
+	
+	    animal_types = (
+	        dff['animal_type'].nunique()
+	        if 'animal_type' in dff.columns
+	        else 0
+	    )
+	
+	    return [
+	
+	        html.Div([
+	            html.H2(total_animals),
+	            html.P("Total Animals")
+	        ], style={
+	            'textAlign': 'center',
+	            'padding': '10px'
+	        }),
+	
+	        html.Div([
+	            html.H2(unique_breeds),
+	            html.P("Unique Breeds")
+	        ], style={
+	            'textAlign': 'center',
+	            'padding': '10px'
+	        }),
+	
+	        html.Div([
+	            html.H2(animal_types),
+	            html.P("Animal Types")
+	        ], style={
+	            'textAlign': 'center',
+	            'padding': '10px'
+	        })
+	
+	    ]
+	
+	# -------------------------------
+	# Map Callback // Improved map logic to allow multiple animals to be selected, this way can see and visualize clusters and concentrations of data visually on map
+	# -------------------------------
+	@app.callback(
+	    Output('map-id', 'children'),
+	    [Input('datatable-id', 'derived_virtual_data')]
+	)
+	def update_map(viewData):
+	
+	    if not viewData:
+	        return dl.Map(
+	            center=[30.27, -97.74],
+	            zoom=10,
+	            style={'width': '100%', 'height': '500px'},
+	            children=[dl.TileLayer()]
+	        )
+	
+	    dff = pd.DataFrame(viewData)
+	
+	    if dff.empty:
+	        return dl.Map(
+	            center=[30.27, -97.74],
+	            zoom=10,
+	            style={'width': '100%', 'height': '500px'},
+	            children=[dl.TileLayer()]
+	        )
+	
+	    markers = []
+	
+	    for _, row in dff.iterrows():
+	
+	        try:
+	
+	            lat = float(row['location_lat'])
+	            lon = float(row['location_long'])
+	
+	            markers.append(
+	                dl.Marker(
+	                    position=[lat, lon],
+	                    children=[
+	                        dl.Tooltip(
+	                            row.get('name', 'Unknown')
+	                        )
+	                    ]
+	                )
+	            )
+	
+	        except:
+	            continue
+	
+	    return dl.Map(
+	        center=[30.27, -97.74],
+	        zoom=10,
+	        style={'width': '100%', 'height': '500px'},
+	        children=[
+	            dl.TileLayer(),
+	            *markers
+	        ]
+	    )
+	
+	# -------------------------------
+	# Graph Callback // Now this is a bar graph that shows the top 10 breeds
+	# ------------------------------- 
+	@app.callback(
+	    Output('graph-id', 'children'),
+	    [Input('datatable-id', 'derived_virtual_data')]
+	)
+	def update_graphs(viewData):
+	
+	    if not viewData:
+	        return html.Div("No data available.")
+	
+	    dff = pd.DataFrame(viewData)
+	
+	    if dff.empty:
+	        return html.Div("No data available.")
+	
+	    graphs = []
+	
+	    # Top 10 Breeds
+	    if 'breed' in dff.columns:
+	
+	        breed_counts = (
+	            dff['breed']
+	            .fillna('Unknown')
+	            .value_counts()
+	            .head(10)
+	            .reset_index()
+	        )
+	
+	        breed_counts.columns = ['Breed', 'Count']
+	
+	        breed_fig = px.bar(
+	            breed_counts,
+	            x='Breed',
+	            y='Count',
+	            title='Top 10 Animal Breeds'
+	        )
+	
+	        graphs.append(
+	            dcc.Graph(figure=breed_fig)
+	        )
+	
+	    # Animal Type Distribution
+	    if 'animal_type' in dff.columns:
+	
+	        type_fig = px.pie(
+	            dff,
+	            names='animal_type',
+	            title='Animal Type Distribution'
+	        )
+	
+	        graphs.append(
+	            dcc.Graph(figure=type_fig)
+	        )
+	
+	    return html.Div(graphs)
+	
+	# -------------------------------
+	# Run App
+	# -------------------------------
+	app.run_server()
