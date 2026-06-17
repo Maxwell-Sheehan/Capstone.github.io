@@ -8,7 +8,8 @@ In summary, all of these artifacts exist and demonstrated understanding I had pr
 
 
 If you would like to see an indepth code review, please follow this link to see me discuss the proposed changes, and inevitable revisions of each individual artifact.
-    Placeholder
+    
+	https://www.youtube.com/watch?v=kpnvNTNCQjA
 
 Enhancment One: Software Design and Engineering
 
